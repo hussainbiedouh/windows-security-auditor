@@ -72,6 +72,7 @@ def perform_scan(scan_type):
         results['findings'].extend(check_user_accounts())
         results['findings'].extend(check_services())
         results['findings'].extend(check_registry_security())
+        results['findings'].extend(check_network_security())
     
     return results
 
@@ -420,6 +421,91 @@ def check_registry_security():
             'category': 'Registry Security',
             'status': 'warning',
             'description': f'Error checking PowerShell execution policy: {str(e)}',
+        })
+    
+    return findings
+
+def check_network_security():
+    """Check network-related security settings"""
+    findings = []
+    
+    # Get listening ports
+    try:
+        result = subprocess.run(
+            ['netstat', '-an'],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            lines = result.stdout.split('\n')
+            listening_ports = [line for line in lines if 'LISTEN' in line]
+            
+            # Filter out common safe ports
+            potentially_risky_ports = []
+            for line in listening_ports:
+                # Extract port number
+                parts = line.split()
+                if len(parts) >= 2:
+                    local_address = parts[1]
+                    port_str = local_address.split(':')[-1]
+                    try:
+                        port = int(port_str)
+                        # Common potentially risky ports (FTP, Telnet, RDP, SMB, etc.)
+                        risky_port_ranges = [20, 21, 23, 25, 110, 135, 137, 138, 139, 445, 993, 995, 3389, 5900]
+                        if port in risky_port_ranges:
+                            potentially_risky_ports.append(str(port))
+                    except ValueError:
+                        continue
+            
+            if potentially_risky_ports:
+                findings.append({
+                    'category': 'Network Security',
+                    'status': 'warning',
+                    'description': f'Potentially risky ports are listening: {", ".join(potentially_risky_ports)}',
+                })
+            else:
+                findings.append({
+                    'category': 'Network Security',
+                    'status': 'info',
+                    'description': f'{len(listening_ports)} ports are listening (no common risky ports detected)',
+                })
+        else:
+            findings.append({
+                'category': 'Network Security',
+                'status': 'warning',
+                'description': 'Could not retrieve network listening ports',
+            })
+    except Exception as e:
+        findings.append({
+            'category': 'Network Security',
+            'status': 'warning',
+            'description': f'Error checking network ports: {str(e)}',
+        })
+    
+    # Check for established connections
+    try:
+        result = subprocess.run(
+            ['netstat', '-an'],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            lines = result.stdout.split('\n')
+            established_connections = [line for line in lines if 'ESTABLISHED' in line]
+            findings.append({
+                'category': 'Network Security',
+                'status': 'info',
+                'description': f'{len(established_connections)} active connections',
+            })
+        else:
+            findings.append({
+                'category': 'Network Security',
+                'status': 'warning',
+                'description': 'Could not retrieve active connections',
+            })
+    except Exception as e:
+        findings.append({
+            'category': 'Network Security',
+            'status': 'warning',
+            'description': f'Error checking active connections: {str(e)}',
         })
     
     return findings
