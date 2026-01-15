@@ -246,18 +246,100 @@ def check_user_accounts():
     try:
         # First try with PowerShell (more likely to be available)
         result_ps = subprocess.run(
-            ['powershell', '-Command', 'Get-LocalUser | Select-Object Name, Enabled, LastLogon | Format-List'],
+            ['powershell', '-Command', 'Get-LocalUser | Select-Object Name, Enabled, LastLogon, SID | Format-List'],
             capture_output=True, text=True, timeout=30
         )
         
         if result_ps.returncode == 0 and result_ps.stdout.strip():
             lines = result_ps.stdout.split('\n')
-            account_lines = [line for line in lines if 'Name' in line and ':' in line]
+            
+            # Parse the output to extract user information
+            users_data = []
+            current_user = {}
+            
+            for line in lines:
+                line = line.strip()
+                if line.startswith('Name') and ':' in line:
+                    if current_user and 'Name' in current_user:
+                        users_data.append(current_user)
+                    current_user = {'Name': line.split(':', 1)[1].strip()}
+                elif line.startswith('Enabled') and ':' in line:
+                    current_user['Enabled'] = line.split(':', 1)[1].strip()
+                elif line.startswith('LastLogon') and ':' in line:
+                    last_logon = line.split(':', 1)[1].strip()
+                    current_user['LastLogon'] = last_logon if last_logon != '' else 'Never'
+                elif line.startswith('SID') and ':' in line:
+                    current_user['SID'] = line.split(':', 1)[1].strip()
+            
+            # Add the last user
+            if current_user and 'Name' in current_user:
+                users_data.append(current_user)
+            
             findings.append({
                 'category': 'User Accounts',
                 'status': 'info',
-                'description': f'Total user accounts: {len(account_lines)} (via PowerShell)',
+                'description': f'Total user accounts: {len(users_data)} (via PowerShell)',
             })
+            
+            # Check for currently logged in users
+            try:
+                # Use qwinsta to check for active sessions
+                result_sessions = subprocess.run(
+                    ['qwinsta'],
+                    capture_output=True, text=True, timeout=10
+                )
+                if result_sessions.returncode == 0 and result_sessions.stdout.strip():
+                    lines = result_sessions.stdout.split('\n')[1:]  # Skip header
+                    active_users = []
+                    for line in lines:
+                        if line.strip():
+                            # Parse qwinsta output to get session info
+                            parts = line.split()
+                            if len(parts) >= 2:
+                                username = parts[0].strip()
+                                if username.lower() != '>services' and username != '.':
+                                    active_users.append(username)
+                    
+                    if active_users:
+                        findings.append({
+                            'category': 'User Accounts',
+                            'status': 'info',
+                            'description': f'Currently active users: {", ".join(active_users)}',
+                        })
+            except Exception:
+                # Fallback to whoami command
+                try:
+                    current_user_result = subprocess.run(
+                        ['whoami'],
+                        capture_output=True, text=True, timeout=10
+                    )
+                    if current_user_result.returncode == 0:
+                        current_user = current_user_result.stdout.strip()
+                        findings.append({
+                            'category': 'User Accounts',
+                            'status': 'info',
+                            'description': f'Current user context: {current_user}',
+                        })
+                except Exception:
+                    pass
+            
+            # Report on accounts with last login information
+            active_accounts = [user for user in users_data if user.get('Enabled', '').upper() == 'TRUE']
+            inactive_accounts = [user for user in users_data if user.get('Enabled', '').upper() != 'TRUE']
+            
+            if active_accounts:
+                findings.append({
+                    'category': 'User Accounts',
+                    'status': 'info',
+                    'description': f'Active accounts: {len(active_accounts)}',
+                })
+            
+            if inactive_accounts:
+                findings.append({
+                    'category': 'User Accounts',
+                    'status': 'info',
+                    'description': f'Disabled accounts: {len(inactive_accounts)}',
+                })
         else:
             # Fallback to wmic if PowerShell fails
             result = subprocess.run(
