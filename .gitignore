@@ -17,6 +17,7 @@ dist/
 *.log
 output/
 results.json
+*.json
 *.tmp
 .DS_Store
 Thumbs.db
