@@ -16,6 +16,9 @@ try:
     import wmi
     import psutil
     import winreg
+    from colorama import init, Fore, Back, Style
+    # Initialize colorama for cross-platform colored output
+    init(autoreset=True)
 except ImportError:
     print("Required modules not found. Please run: pip install -r requirements.txt")
     sys.exit(1)
@@ -427,21 +430,32 @@ def display_results(results, format_type):
     if format_type == 'json':
         print(json.dumps(results, indent=2))
     else:
-        print(f"Scan performed at: {results['timestamp']}")
-        print(f"Scan type: {results['scan_type']}")
-        print("\nFindings:")
+        print(Fore.CYAN + "Scan performed at: " + Fore.YELLOW + f"{results['timestamp']}")
+        print(Fore.CYAN + "Scan type: " + Fore.YELLOW + f"{results['scan_type']}")
+        print("")
+        print(Fore.CYAN + "Findings:" + Style.RESET_ALL)
         current_category = None
         for finding in results['findings']:
             if finding['category'] != current_category:
                 current_category = finding['category']
-                print(f"\n[{finding['category']}]\n{'-' * len(finding['category'])}")
-            status_icon = {
+                print("")
+                print(Fore.MAGENTA + f"[{finding['category']}]" + Style.RESET_ALL)
+                print(Fore.MAGENTA + f"{'-' * len(finding['category'])}" + Style.RESET_ALL)
+            status_colors = {
+                'ok': Fore.GREEN,
+                'info': Fore.BLUE,
+                'warning': Fore.YELLOW,
+                'error': Fore.RED
+            }
+            status_icons = {
                 'ok': '[✓]',
-                'info': '[i]',
-                'warning': '[!]',
+                'info': '[ℹ]',
+                'warning': '[⚠]',
                 'error': '[✗]'
-            }.get(finding['status'], '[?]')
-            print(f"  {status_icon} {finding['description']}")
+            }
+            color = status_colors.get(finding['status'], Fore.WHITE)
+            icon = status_icons.get(finding['status'], '[?]')
+            print(f"  {color}{icon} {finding['description']}" + Style.RESET_ALL)
 
 
 def save_results(results, output_file, format_type):
