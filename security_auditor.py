@@ -183,30 +183,52 @@ def check_autorun_programs():
     """Check programs that run at startup"""
     findings = []
     try:
-        # Using wmic to get startup programs
-        result = subprocess.run(
-            ['wmic', 'startup', 'get', 'caption,command,user', '/format:list'],
-            capture_output=True, text=True
+        # First try with PowerShell (more likely to be available)
+        result_ps = subprocess.run(
+            ['powershell', '-Command', 'Get-CimInstance Win32_StartupCommand | Select-Object Name, Command | Format-List'],
+            capture_output=True, text=True, timeout=30
         )
         
-        if result.returncode == 0:
-            startups = [line.strip() for line in result.stdout.split('\n') if line.strip()]
-            startup_count = len(startups)
+        if result_ps.returncode == 0 and result_ps.stdout.strip():
+            lines = result_ps.stdout.split('\n')
+            command_lines = [line for line in lines if line.strip().startswith('Command')]
+            startup_count = len(command_lines)
             findings.append({
                 'category': 'Autorun Programs',
                 'status': 'info',
-                'description': f'Startup programs: {startup_count} found',
+                'description': f'Startup programs: {startup_count} found (via PowerShell)',
             })
         else:
-            findings.append({
-                'category': 'Autorun Programs',
-                'status': 'error',
-                'description': 'Could not retrieve autorun programs',
-            })
+            # Fallback to wmic if PowerShell fails
+            result = subprocess.run(
+                ['wmic', 'startup', 'get', 'caption,command,user', '/format=list'],
+                capture_output=True, text=True, timeout=30
+            )
+            
+            if result.returncode == 0 and 'Caption' in result.stdout:  # Check if command worked
+                startups = [line.strip() for line in result.stdout.split('\n') if line.strip() and '=' in line]
+                startup_count = len(startups)
+                findings.append({
+                    'category': 'Autorun Programs',
+                    'status': 'info',
+                    'description': f'Startup programs: {startup_count} found',
+                })
+            else:
+                findings.append({
+                    'category': 'Autorun Programs',
+                    'status': 'warning',
+                    'description': 'Could not retrieve autorun programs (WMIC/Powershell not available)',
+                })
+    except subprocess.TimeoutExpired:
+        findings.append({
+            'category': 'Autorun Programs',
+            'status': 'warning',
+            'description': 'Timeout retrieving autorun programs',
+        })
     except Exception as e:
         findings.append({
             'category': 'Autorun Programs',
-            'status': 'error',
+            'status': 'warning',
             'description': f'Error checking autorun programs: {str(e)}',
         })
     
@@ -216,29 +238,50 @@ def check_user_accounts():
     """Check user accounts on the system"""
     findings = []
     try:
-        # Using wmic to get user accounts
-        result = subprocess.run(
-            ['wmic', 'useraccount', 'get', 'name,sid,disabled,lockout,status', '/format:list'],
-            capture_output=True, text=True
+        # First try with PowerShell (more likely to be available)
+        result_ps = subprocess.run(
+            ['powershell', '-Command', 'Get-LocalUser | Select-Object Name, Enabled, LastLogon | Format-List'],
+            capture_output=True, text=True, timeout=30
         )
         
-        if result.returncode == 0:
-            accounts = [line.strip() for line in result.stdout.split('\n') if 'Name=' in line]
+        if result_ps.returncode == 0 and result_ps.stdout.strip():
+            lines = result_ps.stdout.split('\n')
+            account_lines = [line for line in lines if 'Name' in line and ':' in line]
             findings.append({
                 'category': 'User Accounts',
                 'status': 'info',
-                'description': f'Total user accounts: {len(accounts)}',
+                'description': f'Total user accounts: {len(account_lines)} (via PowerShell)',
             })
         else:
-            findings.append({
-                'category': 'User Accounts',
-                'status': 'error',
-                'description': 'Could not retrieve user accounts',
-            })
+            # Fallback to wmic if PowerShell fails
+            result = subprocess.run(
+                ['wmic', 'useraccount', 'get', 'name,sid,disabled,lockout,status', '/format=list'],
+                capture_output=True, text=True, timeout=30
+            )
+            
+            if result.returncode == 0 and 'Name=' in result.stdout:
+                accounts = [line.strip() for line in result.stdout.split('\n') if 'Name=' in line]
+                findings.append({
+                    'category': 'User Accounts',
+                    'status': 'info',
+                    'description': f'Total user accounts: {len(accounts)}',
+                })
+            else:
+                findings.append({
+                    'category': 'User Accounts',
+                    'status': 'warning',
+                    'description': 'Could not retrieve user accounts (WMIC/Powershell not available)',
+                })
+    except subprocess.TimeoutExpired:
+        findings.append({
+            'category': 'User Accounts',
+            'status': 'warning',
+            'description': 'Timeout retrieving user accounts',
+        })
     except Exception as e:
         findings.append({
             'category': 'User Accounts',
-            'status': 'error',
+            'status': 'warning',
             'description': f'Error checking user accounts: {str(e)}',
         })
     
@@ -248,29 +291,59 @@ def check_services():
     """Check system services"""
     findings = []
     try:
-        # Using wmic to get services
-        result = subprocess.run(
-            ['wmic', 'service', 'where', "State='Running'", 'get', 'name,processid,startmode,pathname', '/format:list'],
-            capture_output=True, text=True
+        # First try with PowerShell (more likely to be available)
+        result_ps = subprocess.run(
+            ['powershell', '-Command', 'Get-Service | Where-Object {$_.Status -eq "Running"} | Select-Object Name, Status | Measure-Object'],
+            capture_output=True, text=True, timeout=30
         )
         
-        if result.returncode == 0:
-            services = [line.strip() for line in result.stdout.split('\n') if 'Name=' in line]
-            findings.append({
-                'category': 'Services',
-                'status': 'info',
-                'description': f'Running services: {len(services)}',
-            })
+        if result_ps.returncode == 0 and result_ps.stdout.strip():
+            # Extract count from PowerShell output
+            lines = result_ps.stdout.split('\n')
+            count_line = [line for line in lines if 'Count' in line and ':' in line]
+            if count_line:
+                count = count_line[0].split(':')[-1].strip()
+                findings.append({
+                    'category': 'Services',
+                    'status': 'info',
+                    'description': f'Running services: {count} (via PowerShell)',
+                })
+            else:
+                findings.append({
+                    'category': 'Services',
+                    'status': 'info',
+                    'description': 'Running services: count unavailable',
+                })
         else:
-            findings.append({
-                'category': 'Services',
-                'status': 'error',
-                'description': 'Could not retrieve services',
-            })
+            # Fallback to wmic if PowerShell fails
+            result = subprocess.run(
+                ['wmic', 'service', 'where', "State='Running'", 'get', 'name,processid,startmode,pathname', '/format=list'],
+                capture_output=True, text=True, timeout=30
+            )
+            
+            if result.returncode == 0 and 'Name=' in result.stdout:
+                services = [line.strip() for line in result.stdout.split('\n') if 'Name=' in line]
+                findings.append({
+                    'category': 'Services',
+                    'status': 'info',
+                    'description': f'Running services: {len(services)}',
+                })
+            else:
+                findings.append({
+                    'category': 'Services',
+                    'status': 'warning',
+                    'description': 'Could not retrieve services (WMIC/Powershell not available)',
+                })
+    except subprocess.TimeoutExpired:
+        findings.append({
+            'category': 'Services',
+            'status': 'warning',
+            'description': 'Timeout retrieving services',
+        })
     except Exception as e:
         findings.append({
             'category': 'Services',
-            'status': 'error',
+            'status': 'warning',
             'description': f'Error checking services: {str(e)}',
         })
     
