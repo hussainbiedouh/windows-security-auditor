@@ -15,6 +15,7 @@ from datetime import datetime
 try:
     import wmi
     import psutil
+    import winreg
 except ImportError:
     print("Required modules not found. Please run: pip install -r requirements.txt")
     sys.exit(1)
@@ -67,6 +68,7 @@ def perform_scan(scan_type):
         results['findings'].extend(check_autorun_programs())
         results['findings'].extend(check_user_accounts())
         results['findings'].extend(check_services())
+        results['findings'].extend(check_registry_security())
     
     return results
 
@@ -345,6 +347,76 @@ def check_services():
             'category': 'Services',
             'status': 'warning',
             'description': f'Error checking services: {str(e)}',
+        })
+    
+    return findings
+
+def check_registry_security():
+    """Check important registry security settings"""
+    findings = []
+    
+    # Check if UAC is enabled
+    try:
+        key_path = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path) as key:
+            try:
+                value, reg_type = winreg.QueryValueEx(key, "EnableLUA")
+                if value == 1:
+                    findings.append({
+                        'category': 'Registry Security',
+                        'status': 'ok',
+                        'description': 'UAC (User Account Control) is enabled',
+                    })
+                else:
+                    findings.append({
+                        'category': 'Registry Security',
+                        'status': 'warning',
+                        'description': 'UAC (User Account Control) is disabled',
+                    })
+            except FileNotFoundError:
+                findings.append({
+                    'category': 'Registry Security',
+                    'status': 'warning',
+                    'description': 'UAC registry key not found',
+                })
+    except Exception as e:
+        findings.append({
+            'category': 'Registry Security',
+            'status': 'warning',
+            'description': f'Error checking UAC setting: {str(e)}',
+        })
+    
+    # Check if PowerShell execution policy is restricted
+    try:
+        result = subprocess.run(
+            ['powershell', 'Get-ExecutionPolicy'],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            policy = result.stdout.strip().lower()
+            if policy in ['restricted', 'allsigned']:
+                findings.append({
+                    'category': 'Registry Security',
+                    'status': 'ok',
+                    'description': f'PowerShell execution policy is restrictive: {policy}',
+                })
+            elif policy in ['remotesigned', 'unrestricted']:
+                findings.append({
+                    'category': 'Registry Security',
+                    'status': 'warning',
+                    'description': f'PowerShell execution policy is permissive: {policy}',
+                })
+        else:
+            findings.append({
+                'category': 'Registry Security',
+                'status': 'warning',
+                'description': 'Could not determine PowerShell execution policy',
+            })
+    except Exception as e:
+        findings.append({
+            'category': 'Registry Security',
+            'status': 'warning',
+            'description': f'Error checking PowerShell execution policy: {str(e)}',
         })
     
     return findings
