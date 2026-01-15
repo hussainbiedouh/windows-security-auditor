@@ -12,11 +12,12 @@ A Python-based command-line tool to scan Windows systems for security misconfigu
   - 🔄 Windows Update status
   - 🌐 Firewall configuration
   - ⚙️ Autorun programs
-  - 👤 User accounts
+  - 👤 User accounts (with active status and login information)
   - ⚡ Running services
   - 🔑 Registry security settings
   - 👁️ UAC (User Account Control) status
   - 🔒 PowerShell execution policy
+  - 🌐 Network security (listening ports and active connections)
 
 ## 📦 Installation
 
