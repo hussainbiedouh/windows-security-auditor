@@ -604,13 +604,22 @@ def check_security_software():
             capture_output=True, text=True, timeout=15
         )
         if result.returncode == 0 and result.stdout.strip():
+            # Parse the WMI output to extract antivirus product names
             lines = result.stdout.split('\n')
-            av_products = [line for line in lines if 'displayName' in line.lower() or 'productname' in line.lower()]
+            av_products = []
+            current_product = None
+            for line in lines:
+                if 'displayName' in line.lower() and ':' in line:
+                    # Extract product name after the colon
+                    product_name = line.split(':', 1)[-1].strip()
+                    if product_name and product_name not in av_products and 'AntiVirusProduct' not in product_name:
+                        av_products.append(product_name)
+            
             if av_products:
                 findings.append({
                     'category': 'Security Software',
                     'status': 'ok',
-                    'description': f'Antivirus software detected ({len(av_products)} product(s) found)',
+                    'description': f'Antivirus software detected: {", ".join(av_products)}',
                 })
             else:
                 # Alternative method to check Windows Defender specifically
@@ -618,7 +627,9 @@ def check_security_software():
                     ['powershell', '-Command', 'Get-MpComputerStatus'],
                     capture_output=True, text=True, timeout=15
                 )
-                if 'True' in defender_result.stdout:
+                # Check if Defender is actually enabled based on specific property values
+                if ('True' in defender_result.stdout and 'Enabled' in defender_result.stdout) or \
+                   ('antivirusenabled' in defender_result.stdout.lower() and 'true' in defender_result.stdout.lower()):
                     findings.append({
                         'category': 'Security Software',
                         'status': 'ok',
