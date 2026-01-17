@@ -604,22 +604,47 @@ def check_security_software():
             capture_output=True, text=True, timeout=15
         )
         if result.returncode == 0 and result.stdout.strip():
-            # Parse the WMI output to extract antivirus product names
-            lines = result.stdout.split('\n')
-            av_products = []
+            # Parse the WMI output to extract antivirus product names and their states
+            output = result.stdout
+            lines = output.split('\n')
+            
+            # Extract product names and states
+            product_names = []
+            product_states = []
             current_product = None
+            
             for line in lines:
                 if 'displayName' in line.lower() and ':' in line:
-                    # Extract product name after the colon
                     product_name = line.split(':', 1)[-1].strip()
-                    if product_name and product_name not in av_products and 'AntiVirusProduct' not in product_name:
-                        av_products.append(product_name)
+                    if product_name and 'antivirusproduct' not in product_name.lower():
+                        product_names.append(product_name)
+                elif 'productstate' in line.lower() and ':' in line and line.split(':', 1)[-1].strip().isdigit():
+                    state = int(line.split(':', 1)[-1].strip())
+                    product_states.append(state)
             
-            if av_products:
+            # Determine which antivirus is active based on product state codes
+            # 266240 = Running with up-to-date signatures
+            # 266496 = Running with out-of-date signatures
+            # 393472 = Windows Defender specific state (running with up-to-date signatures)
+            active_avs = []
+            for i, name in enumerate(product_names):
+                if i < len(product_states):
+                    state = product_states[i]
+                    if state in [266240, 266496, 393472]:  # Active states
+                        active_avs.append(name)
+            
+            if active_avs:
                 findings.append({
                     'category': 'Security Software',
                     'status': 'ok',
-                    'description': f'Antivirus software detected: {", ".join(av_products)}',
+                    'description': f'Active antivirus software: {", ".join(active_avs)}',
+                })
+            elif product_names:
+                # Products exist but none are active
+                findings.append({
+                    'category': 'Security Software',
+                    'status': 'warning',
+                    'description': f'Antivirus software installed but may not be active: {", ".join(product_names)}',
                 })
             else:
                 # Alternative method to check Windows Defender specifically
@@ -639,7 +664,7 @@ def check_security_software():
                     findings.append({
                         'category': 'Security Software',
                         'status': 'warning',
-                        'description': 'No antivirus software detected',
+                        'description': 'No active antivirus software detected',
                     })
         else:
             # Try alternative method for Windows Defender
