@@ -18,6 +18,7 @@ A Python-based command-line tool to scan Windows systems for security misconfigu
   - 👁️ UAC (User Account Control) status
   - 🔒 PowerShell execution policy
   - 🌐 Network security (listening ports and active connections)
+  - 🛡️ Security software (antivirus, firewall, antispyware status)
 
 ## 📦 Installation
 

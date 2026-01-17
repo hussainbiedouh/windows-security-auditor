@@ -73,6 +73,7 @@ def perform_scan(scan_type):
         results['findings'].extend(check_services())
         results['findings'].extend(check_registry_security())
         results['findings'].extend(check_network_security())
+        results['findings'].extend(check_security_software())
     
     return results
 
@@ -588,6 +589,142 @@ def check_network_security():
             'category': 'Network Security',
             'status': 'warning',
             'description': f'Error checking active connections: {str(e)}',
+        })
+    
+    return findings
+
+def check_security_software():
+    """Check for installed security software"""
+    findings = []
+    
+    # Check for installed antivirus software using PowerShell
+    try:
+        result = subprocess.run(
+            ['powershell', '-Command', 'Get-WmiObject -Namespace root\\SecurityCenter2 -Class AntivirusProduct'],
+            capture_output=True, text=True, timeout=15
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            lines = result.stdout.split('\n')
+            av_products = [line for line in lines if 'displayName' in line.lower() or 'productname' in line.lower()]
+            if av_products:
+                findings.append({
+                    'category': 'Security Software',
+                    'status': 'ok',
+                    'description': f'Antivirus software detected ({len(av_products)} product(s) found)',
+                })
+            else:
+                # Alternative method to check Windows Defender specifically
+                defender_result = subprocess.run(
+                    ['powershell', '-Command', 'Get-MpComputerStatus'],
+                    capture_output=True, text=True, timeout=15
+                )
+                if 'True' in defender_result.stdout:
+                    findings.append({
+                        'category': 'Security Software',
+                        'status': 'ok',
+                        'description': 'Windows Defender is active',
+                    })
+                else:
+                    findings.append({
+                        'category': 'Security Software',
+                        'status': 'warning',
+                        'description': 'No antivirus software detected',
+                    })
+        else:
+            # Try alternative method for Windows Defender
+            defender_result = subprocess.run(
+                ['powershell', '-Command', 'Get-MpComputerStatus | Select-Object AntivirusEnabled, RealTimeProtectionEnabled'],
+                capture_output=True, text=True, timeout=15
+            )
+            if 'True' in defender_result.stdout:
+                findings.append({
+                    'category': 'Security Software',
+                    'status': 'ok',
+                    'description': 'Windows Defender is active',
+                })
+            else:
+                findings.append({
+                    'category': 'Security Software',
+                    'status': 'warning',
+                    'description': 'No antivirus software detected',
+                })
+    except Exception as e:
+        findings.append({
+            'category': 'Security Software',
+            'status': 'warning',
+            'description': f'Error checking antivirus status: {str(e)}',
+        })
+    
+    # Check for firewall status using PowerShell
+    try:
+        result = subprocess.run(
+            ['powershell', '-Command', 'Get-NetFirewallProfile | Select-Object Name, Enabled'],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            lines = result.stdout.split('\n')
+            enabled_profiles = 0
+            for line in lines:
+                if 'True' in line:
+                    enabled_profiles += 1
+            
+            if enabled_profiles > 0:
+                findings.append({
+                    'category': 'Security Software',
+                    'status': 'ok',
+                    'description': f'Windows Firewall is active ({enabled_profiles}/3 profiles enabled)',
+                })
+            else:
+                findings.append({
+                    'category': 'Security Software',
+                    'status': 'warning',
+                    'description': 'Windows Firewall is not active',
+                })
+        else:
+            findings.append({
+                'category': 'Security Software',
+                'status': 'warning',
+                'description': 'Could not determine Windows Firewall status',
+            })
+    except Exception as e:
+        findings.append({
+            'category': 'Security Software',
+            'status': 'warning',
+            'description': f'Error checking firewall status: {str(e)}',
+        })
+    
+    # Check for antispyware software
+    try:
+        result = subprocess.run(
+            ['powershell', '-Command', 'Get-WmiObject -Namespace root\\SecurityCenter2 -Class AntiSpywareProduct'],
+            capture_output=True, text=True, timeout=15
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            lines = result.stdout.split('\n')
+            as_products = [line for line in lines if 'displayName' in line.lower() or 'productname' in line.lower()]
+            if as_products:
+                findings.append({
+                    'category': 'Security Software',
+                    'status': 'ok',
+                    'description': f'Antispyware software detected ({len(as_products)} product(s) found)',
+                })
+            else:
+                findings.append({
+                    'category': 'Security Software',
+                    'status': 'info',
+                    'description': 'No dedicated antispyware software detected (may be included in antivirus)',
+                })
+        else:
+            findings.append({
+                'category': 'Security Software',
+                'status': 'info',
+                'description': 'No dedicated antispyware software detected (may be included in antivirus)',
+            })
+    except Exception as e:
+        findings.append({
+            'category': 'Security Software',
+            'status': 'warning',
+            'description': f'Error checking antispyware status: {str(e)}',
         })
     
     return findings
