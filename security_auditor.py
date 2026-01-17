@@ -604,47 +604,81 @@ def check_security_software():
             capture_output=True, text=True, timeout=15
         )
         if result.returncode == 0 and result.stdout.strip():
-            # Parse the WMI output to extract antivirus product names and their states
+            # More robust parsing of WMI output
             output = result.stdout
+            
+            # Split output into sections based on the object boundaries
             lines = output.split('\n')
             
-            # Extract product names and states
-            product_names = []
-            product_states = []
-            current_product = None
+            # Variables to hold current object properties
+            current_display_name = None
+            current_product_state = None
+            av_objects = []
             
             for line in lines:
-                if 'displayName' in line.lower() and ':' in line:
-                    product_name = line.split(':', 1)[-1].strip()
-                    if product_name and 'antivirusproduct' not in product_name.lower():
-                        product_names.append(product_name)
-                elif 'productstate' in line.lower() and ':' in line and line.split(':', 1)[-1].strip().isdigit():
-                    state = int(line.split(':', 1)[-1].strip())
-                    product_states.append(state)
+                line_lower = line.lower()
+                
+                # Check if this line contains a display name
+                if 'displayname' in line_lower and ':' in line:
+                    current_display_name = line.split(':', 1)[-1].strip()
+                
+                # Check if this line contains a product state
+                elif 'productstate' in line_lower and ':' in line:
+                    try:
+                        current_product_state = int(line.split(':', 1)[-1].strip())
+                    except ValueError:
+                        current_product_state = None
+                
+                # If we have both name and state, store the object and reset
+                if current_display_name and current_product_state is not None:
+                    av_objects.append({'name': current_display_name, 'state': current_product_state})
+                    current_display_name = None
+                    current_product_state = None
             
-            # Determine which antivirus is active based on product state codes
-            # 266240 = Running with up-to-date signatures
-            # 266496 = Running with out-of-date signatures
-            # 393472 = Windows Defender specific state (running with up-to-date signatures)
+            # Determine which antivirus products are active based on their states
             active_avs = []
-            for i, name in enumerate(product_names):
-                if i < len(product_states):
-                    state = product_states[i]
-                    if state in [266240, 266496, 393472]:  # Active states
-                        active_avs.append(name)
+            inactive_avs = []
+            
+            for obj in av_objects:
+                name = obj['name']
+                state = obj['state']
+                
+                # Define active states
+                # 266240 = Running with up-to-date signatures
+                # 266496 = Running with out-of-date signatures
+                # 393472 = Windows Defender specific state (running with up-to-date signatures)
+                if state in [266240, 266496, 393472]:
+                    active_avs.append(name)
+                else:
+                    inactive_avs.append(f"{name} (state: {state})")
             
             if active_avs:
+                # Remove duplicates while preserving order
+                seen = set()
+                unique_active_avs = []
+                for av in active_avs:
+                    if av not in seen:
+                        seen.add(av)
+                        unique_active_avs.append(av)
                 findings.append({
                     'category': 'Security Software',
                     'status': 'ok',
-                    'description': f'Active antivirus software: {", ".join(active_avs)}',
+                    'description': f'Active antivirus software: {", ".join(unique_active_avs)}',
                 })
-            elif product_names:
-                # Products exist but none are active
+            elif av_objects:
+                # There are AV products but none are active
+                names_only = [obj['name'] for obj in av_objects]
+                # Remove duplicates while preserving order
+                seen = set()
+                unique_names_only = []
+                for name in names_only:
+                    if name not in seen:
+                        seen.add(name)
+                        unique_names_only.append(name)
                 findings.append({
                     'category': 'Security Software',
                     'status': 'warning',
-                    'description': f'Antivirus software installed but may not be active: {", ".join(product_names)}',
+                    'description': f'Antivirus software installed but may not be active: {", ".join(unique_names_only)}',
                 })
             else:
                 # Alternative method to check Windows Defender specifically
