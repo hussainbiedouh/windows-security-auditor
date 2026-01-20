@@ -193,19 +193,60 @@ def check_autorun_programs():
     try:
         # First try with PowerShell (more likely to be available)
         result_ps = subprocess.run(
-            ['powershell', '-Command', 'Get-CimInstance Win32_StartupCommand | Select-Object Name, Command | Format-List'],
+            ['powershell', '-Command', 'Get-CimInstance Win32_StartupCommand | Select-Object Name, Command, Location, User | Format-List'],
             capture_output=True, text=True, timeout=30
         )
         
         if result_ps.returncode == 0 and result_ps.stdout.strip():
             lines = result_ps.stdout.split('\n')
-            command_lines = [line for line in lines if line.strip().startswith('Command')]
-            startup_count = len(command_lines)
+            # Parse the output to extract startup entries
+            current_entry = {}
+            entries = []
+            
+            for line in lines:
+                line = line.strip()
+                if line.startswith('Name') and ':' in line:
+                    if current_entry and 'Name' in current_entry:
+                        entries.append(current_entry)
+                    current_entry = {'Name': line.split(':', 1)[1].strip()}
+                elif line.startswith('Command') and ':' in line:
+                    current_entry['Command'] = line.split(':', 1)[1].strip()
+                elif line.startswith('Location') and ':' in line:
+                    current_entry['Location'] = line.split(':', 1)[1].strip()
+                elif line.startswith('User') and ':' in line:
+                    current_entry['User'] = line.split(':', 1)[1].strip()
+            
+            # Add the last entry
+            if current_entry and 'Name' in current_entry:
+                entries.append(current_entry)
+            
+            startup_count = len(entries)
             findings.append({
                 'category': 'Autorun Programs',
                 'status': 'info',
                 'description': f'Startup programs: {startup_count} found (via PowerShell)',
             })
+            
+            # Add details about each startup entry
+            for entry in entries[:5]:  # Show details for first 5 entries
+                name = entry.get('Name', 'Unknown')
+                command = entry.get('Command', 'Unknown')
+                location = entry.get('Location', 'Unknown')
+                user = entry.get('User', 'Unknown')
+                
+                findings.append({
+                    'category': 'Autorun Programs',
+                    'status': 'info',
+                    'description': f'Entry: {name} | Location: {location} | User: {user}',
+                })
+                
+                # Check if the command path looks suspicious
+                if command.lower().startswith('c:\\users') or 'appdata' in command.lower() or 'temp' in command.lower():
+                    findings.append({
+                        'category': 'Autorun Programs',
+                        'status': 'warning',
+                        'description': f'Suspicious startup location: {command}',
+                    })
         else:
             # Fallback to wmic if PowerShell fails
             result = subprocess.run(
