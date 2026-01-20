@@ -19,6 +19,7 @@ A Python-based command-line tool to scan Windows systems for security misconfigu
   - 🔒 PowerShell execution policy
   - 🌐 Network security (listening ports and active connections)
   - 🛡️ Security software (antivirus, firewall, antispyware status)
+  - 🕵️ Advanced threat detection (event log correlation analysis for brute force, account lockouts, suspicious services, and malicious PowerShell activity)
 
 ## 📦 Installation
 

@@ -74,6 +74,7 @@ def perform_scan(scan_type):
         results['findings'].extend(check_registry_security())
         results['findings'].extend(check_network_security())
         results['findings'].extend(check_security_software())
+        results['findings'].extend(analyze_event_logs_for_threats())
     
     return results
 
@@ -795,6 +796,146 @@ def check_security_software():
             'category': 'Security Software',
             'status': 'warning',
             'description': f'Error checking antispyware status: {str(e)}',
+        })
+    
+    return findings
+
+def analyze_event_logs_for_threats():
+    """Analyze Windows event logs for potential security threats"""
+    findings = []
+    
+    try:
+        # Check for multiple failed login attempts (potential brute force)
+        try:
+            # Query for event ID 4625 (failed login attempts) in the past 24 hours
+            result = subprocess.run(
+                ['powershell', '-Command', 'Get-WinEvent -FilterHashtable @{LogName="Security"; ID=4625; StartTime=(Get-Date).AddDays(-1)} | Group-Object -Property UserId | Where-Object {$_.Count -gt 5}'],
+                capture_output=True, text=True, timeout=30
+            )
+            
+            if result.returncode == 0 and result.stdout.strip():
+                lines = result.stdout.split('\n')
+                failed_login_attempts = [line for line in lines if 'Count' in line and 'UserId' in line]
+                if len(failed_login_attempts) > 0:
+                    findings.append({
+                        'category': 'Event Log Analysis',
+                        'status': 'warning',
+                        'description': f'Potential brute force attack detected: Multiple failed login attempts ({len(failed_login_attempts)} sources)',
+                    })
+            else:
+                findings.append({
+                    'category': 'Event Log Analysis',
+                    'status': 'info',
+                    'description': 'No unusual failed login patterns detected in the last 24 hours',
+                })
+        except Exception as e:
+            findings.append({
+                'category': 'Event Log Analysis',
+                'status': 'warning',
+                'description': f'Error checking for failed login attempts: {str(e)}',
+            })
+        
+        # Check for account lockouts (event ID 4740)
+        try:
+            result = subprocess.run(
+                ['powershell', '-Command', 'Get-WinEvent -FilterHashtable @{LogName="Security"; ID=4740; StartTime=(Get-Date).AddDays(-1)}'],
+                capture_output=True, text=True, timeout=30
+            )
+            
+            if result.returncode == 0 and result.stdout.strip():
+                lines = result.stdout.split('\n')
+                # Count non-empty lines (each represents an event)
+                lockout_events = [line for line in lines if line.strip()]
+                if len(lockout_events) > 0:
+                    findings.append({
+                        'category': 'Event Log Analysis',
+                        'status': 'warning',
+                        'description': f'Multiple account lockouts detected: {len(lockout_events)} accounts locked out',
+                    })
+            else:
+                findings.append({
+                    'category': 'Event Log Analysis',
+                    'status': 'info',
+                    'description': 'No account lockouts detected in the last 24 hours',
+                })
+        except Exception as e:
+            findings.append({
+                'category': 'Event Log Analysis',
+                'status': 'warning',
+                'description': f'Error checking for account lockouts: {str(e)}',
+            })
+        
+        # Check for service installation attempts (event ID 4697 - service installed)
+        try:
+            result = subprocess.run(
+                ['powershell', '-Command', 'Get-WinEvent -FilterHashtable @{LogName="Security"; ID=4697; StartTime=(Get-Date).AddDays(-1)}'],
+                capture_output=True, text=True, timeout=30
+            )
+            
+            if result.returncode == 0 and result.stdout.strip():
+                lines = result.stdout.split('\n')
+                service_install_events = [line for line in lines if line.strip()]
+                if len(service_install_events) > 0:
+                    findings.append({
+                        'category': 'Event Log Analysis',
+                        'status': 'warning',
+                        'description': f'Suspicious service installations detected: {len(service_install_events)} new services installed',
+                    })
+            else:
+                findings.append({
+                    'category': 'Event Log Analysis',
+                    'status': 'info',
+                    'description': 'No new service installations detected in the last 24 hours',
+                })
+        except Exception as e:
+            findings.append({
+                'category': 'Event Log Analysis',
+                'status': 'warning',
+                'description': f'Error checking for service installations: {str(e)}',
+            })
+        
+        # Check for PowerShell execution events (potential malicious scripts)
+        try:
+            result = subprocess.run(
+                ['powershell', '-Command', 'Get-WinEvent -FilterHashtable @{LogName="Security"; ID=4104; StartTime=(Get-Date).AddDays(-1)} | Where-Object {$_.Message -match "DownloadString|DownloadFile|IEX|Invoke-Expression|Net.WebClient"}'],
+                capture_output=True, text=True, timeout=30
+            )
+            
+            if result.returncode == 0 and result.stdout.strip():
+                lines = result.stdout.split('\n')
+                malicious_script_events = [line for line in lines if line.strip()]
+                if len(malicious_script_events) > 0:
+                    findings.append({
+                        'category': 'Event Log Analysis',
+                        'status': 'warning',
+                        'description': f'Potentially malicious PowerShell activity detected: {len(malicious_script_events)} suspicious script executions',
+                    })
+            else:
+                findings.append({
+                    'category': 'Event Log Analysis',
+                    'status': 'info',
+                    'description': 'No suspicious PowerShell activity detected in the last 24 hours',
+                })
+        except Exception as e:
+            findings.append({
+                'category': 'Event Log Analysis',
+                'status': 'warning',
+                'description': f'Error checking for PowerShell threats: {str(e)}',
+            })
+        
+        # If no threats were detected
+        if not any(f['status'] == 'warning' for f in findings):
+            findings.append({
+                'category': 'Event Log Analysis',
+                'status': 'ok',
+                'description': 'No security threats detected in recent event logs',
+            })
+            
+    except Exception as e:
+        findings.append({
+            'category': 'Event Log Analysis',
+            'status': 'error',
+            'description': f'Error analyzing event logs for threats: {str(e)}',
         })
     
     return findings
