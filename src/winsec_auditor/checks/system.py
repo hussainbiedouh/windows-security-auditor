@@ -1,6 +1,7 @@
 """System information checks."""
 
 import platform
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 import psutil
@@ -105,7 +106,6 @@ def check_system() -> list["SecurityFinding"]:
     # Boot time
     try:
         boot_time = psutil.boot_time()
-        from datetime import datetime
         boot_datetime = datetime.fromtimestamp(boot_time)
         uptime = datetime.now() - boot_datetime
         

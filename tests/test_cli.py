@@ -167,7 +167,7 @@ class TestCLI:
         mock_is_windows.return_value = True
         
         mock_scanner = MagicMock()
-        mock_scanner.scan.return_value = mock_scan_result
+        mock_scanner.scan_with_progress.return_value = mock_scan_result
         mock_scanner_class.return_value = mock_scanner
         
         result = runner.invoke(main, ['--check', 'firewall'])
@@ -181,7 +181,7 @@ class TestCLI:
         mock_is_windows.return_value = True
         
         mock_scanner = MagicMock()
-        mock_scanner.scan.return_value = mock_scan_result
+        mock_scanner.scan_with_progress.return_value = mock_scan_result
         mock_scanner_class.return_value = mock_scanner
         
         result = runner.invoke(main, ['--check', 'firewall,users,network'])
@@ -206,7 +206,7 @@ class TestCLI:
         mock_is_windows.return_value = True
         
         mock_scanner = MagicMock()
-        mock_scanner.scan.return_value = mock_scan_result
+        mock_scanner.scan_with_progress.return_value = mock_scan_result
         mock_scanner_class.return_value = mock_scanner
         
         result = runner.invoke(main, ['--check', ' firewall , users , network '])
@@ -224,14 +224,14 @@ class TestCLI:
         mock_is_windows.return_value = True
         
         mock_scanner = MagicMock()
-        mock_scanner.scan.return_value = mock_scan_result
+        mock_scanner.scan_with_progress.return_value = mock_scan_result
         mock_scanner_class.return_value = mock_scanner
         
         result = runner.invoke(main, ['--scan', 'basic', '--json', '-'])
         
         assert result.exit_code == 0
-        # Should use scan (not scan_with_progress) for JSON stdout
-        mock_scanner.scan.assert_called_once()
+        # Uses scan_with_progress consistently
+        mock_scanner.scan_with_progress.assert_called_once()
         # Check JSON is valid
         assert '"timestamp"' in result.output
     
@@ -242,7 +242,7 @@ class TestCLI:
         mock_is_windows.return_value = True
         
         mock_scanner = MagicMock()
-        mock_scanner.scan.return_value = mock_scan_result
+        mock_scanner.scan_with_progress.return_value = mock_scan_result
         mock_scanner_class.return_value = mock_scanner
         
         output_file = tmp_path / "report.json"

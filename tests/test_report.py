@@ -344,12 +344,13 @@ class TestReportGenerator:
     def test_save_html_report_overwrite(self, report_gen, sample_result, tmp_path):
         """Test overwriting existing HTML report."""
         filepath = tmp_path / "report.html"
-        filepath.write_text("<html>old</html>")
+        filepath.write_text("<html>old content</html>")
         
         report_gen.save_html_report(sample_result, str(filepath))
         
         content = filepath.read_text()
-        assert "old" not in content
+        # Check that old content is replaced (look for specific old content pattern)
+        assert "old content" not in content
         assert "Windows Security Audit Report" in content
     
     # ========================================================================

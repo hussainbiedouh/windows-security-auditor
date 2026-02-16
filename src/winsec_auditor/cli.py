@@ -58,6 +58,11 @@ from winsec_auditor.utils import is_windows
     is_flag=True,
     help='Enable verbose output'
 )
+@click.option(
+    '--no-progress',
+    is_flag=True,
+    help='Disable progress bars (useful for CI/CD or piping)'
+)
 @click.version_option(version=__version__, prog_name='winsec-audit')
 def main(
     scan_type: Optional[str],
@@ -67,11 +72,12 @@ def main(
     html_output: Optional[str],
     no_color: bool,
     verbose: bool,
+    no_progress: bool = False,
 ) -> None:
     """Windows Security Auditor - Comprehensive security scanning tool.
-    
+
     Examples:
-    
+
         \b
         winsec-audit                          # Interactive mode
         winsec-audit --scan basic             # Basic scan
@@ -80,14 +86,14 @@ def main(
         winsec-audit --scan full --html report.html  # Full scan, HTML report
         winsec-audit --check firewall,users   # Run specific checks
         winsec-audit --list-checks            # List all checks
+        winsec-audit --scan full --no-progress  # Full scan without progress bars
     """
     # Initialize console
     console = Console(color_system=None if no_color else "auto")
     
     # Check if running on Windows
     if not is_windows():
-        console.print("[red]Error: This tool is designed for Windows systems only.[/red]")
-        sys.exit(1)
+        _exit_with_error(console, "[red]Error: This tool is designed for Windows systems only.[/red]", 1)
     
     # List checks and exit
     if list_checks:
@@ -103,7 +109,7 @@ def main(
         if invalid_checks:
             console.print(f"[red]Error: Invalid check(s): {', '.join(invalid_checks)}[/red]")
             console.print("\n[yellow]Use --list-checks to see available checks.[/yellow]")
-            sys.exit(1)
+            _exit_with_error(console, None, 1)
         
         scan_mode = "custom"
         checks_to_run = check_list
@@ -124,22 +130,22 @@ def main(
     console.print()
     
     scanner = SecurityScanner(verbose=verbose)
-    
+
     try:
-        if json_output == '-':
-            # JSON to stdout - no progress bars
-            result = scanner.scan(scan_mode, specific_checks=checks_to_run)
-        else:
-            # Normal scan with progress
-            result = scanner.scan_with_progress(scan_mode, console=console)
+        # Always use scan_with_progress for consistent behavior
+        # The no_progress flag is handled by passing None console or a non-terminal console
+        progress_console = None if no_progress else console
+        result = scanner.scan_with_progress(scan_mode, specific_checks=checks_to_run, console=progress_console)
     except KeyboardInterrupt:
-        console.print("\n[yellow]Scan interrupted by user.[/yellow]")
-        sys.exit(130)
+        _exit_with_error(console, "\n[yellow]Scan interrupted by user.[/yellow]", 130)
     except Exception as e:
-        console.print(f"\n[red]Error during scan: {e}[/red]")
+        error_msg = f"\n[red]Error during scan: {e}[/red]"
         if verbose:
+            console.print(error_msg)
             console.print_exception()
-        sys.exit(1)
+        else:
+            console.print(error_msg)
+        _exit_with_error(console, None, 1)
     
     # Generate reports
     report_gen = ReportGenerator(console)
@@ -159,22 +165,8 @@ def main(
     if html_output:
         report_gen.save_html_report(result, html_output)
     
-    # Print final summary
-    summary = result.get('summary', {})
-    console.print()
-    
-    if summary.get('critical', 0) > 0:
-        console.print(f"[bold red]Scan complete! Found {summary['critical']} critical issue(s) that need immediate attention.[/bold red]")
-    elif summary.get('warning', 0) > 0:
-        console.print(f"[bold yellow]Scan complete! Found {summary['warning']} warning(s) that should be reviewed.[/bold yellow]")
-    else:
-        console.print("[bold green]Scan complete! No security issues detected.[/bold green]")
-    
-    # Exit with appropriate code
-    if summary.get('critical', 0) > 0:
-        sys.exit(2)
-    elif summary.get('warning', 0) > 0:
-        sys.exit(1)
+    # Print final summary and exit with appropriate code
+    _print_summary_and_exit(console, result)
 
 
 def _list_available_checks(console: Console) -> None:
@@ -203,7 +195,7 @@ def _list_available_checks(console: Console) -> None:
 
 def _interactive_scan_selection(console: Console) -> str:
     """Interactive scan type selection.
-    
+
     Returns:
         Selected scan type.
     """
@@ -216,17 +208,69 @@ def _interactive_scan_selection(console: Console) -> str:
     console.print("  [cyan]1.[/cyan] [green]Basic Scan[/green]    - Quick system overview (3 checks)")
     console.print("  [cyan]2.[/cyan] [blue]Full Scan[/blue]     - Comprehensive security audit (11 checks)")
     console.print()
-    
+
     choice = click.prompt(
         "Enter your choice",
         type=click.Choice(['1', '2', 'basic', 'full']),
         default='2',
         show_choices=False,
     )
-    
+
     if choice in ['1', 'basic']:
         return 'basic'
     return 'full'
+
+
+def _get_exit_code(summary: dict) -> int:
+    """Determine exit code based on scan summary.
+
+    Args:
+        summary: Scan summary dictionary with counts.
+
+    Returns:
+        Exit code (0 = success, 1 = warnings, 2 = critical).
+    """
+    if summary.get('critical', 0) > 0:
+        return 2
+    elif summary.get('warning', 0) > 0:
+        return 1
+    return 0
+
+
+def _exit_with_error(console: Console, message: str | None, code: int) -> None:
+    """Print error message and exit with specified code.
+    
+    This helper centralizes exit logic to ensure consistent error handling
+    and prevents code duplication across the CLI.
+
+    Args:
+        console: Rich console instance.
+        message: Optional error message to print before exiting.
+        code: Exit code to use.
+    """
+    if message:
+        console.print(message)
+    sys.exit(code)
+
+
+def _print_summary_and_exit(console: Console, result: dict) -> None:
+    """Print scan summary and exit with appropriate code.
+
+    Args:
+        console: Rich console instance.
+        result: Scan result dictionary.
+    """
+    summary = result.get('summary', {})
+    console.print()
+
+    if summary.get('critical', 0) > 0:
+        console.print(f"[bold red]Scan complete! Found {summary['critical']} critical issue(s) that need immediate attention.[/bold red]")
+    elif summary.get('warning', 0) > 0:
+        console.print(f"[bold yellow]Scan complete! Found {summary['warning']} warning(s) that should be reviewed.[/bold yellow]")
+    else:
+        console.print("[bold green]Scan complete! No security issues detected.[/bold green]")
+
+    _exit_with_error(console, None, _get_exit_code(summary))
 
 
 if __name__ == '__main__':

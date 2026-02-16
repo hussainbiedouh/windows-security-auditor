@@ -61,11 +61,12 @@ def check_updates() -> list["SecurityFinding"]:
         })
     
     # Check for pending updates using COM (more reliable)
+    # Using a try/finally pattern to ensure COM object cleanup
     success, output = run_powershell(
         "(New-Object -ComObject Microsoft.Update.Session).CreateUpdateSearcher().Search('IsInstalled=0').Updates.Count",
         timeout=30
     )
-    
+
     if success:
         try:
             pending = int(output.strip())
@@ -86,5 +87,11 @@ def check_updates() -> list["SecurityFinding"]:
                 })
         except ValueError:
             pass
-    
+        finally:
+            # Force PowerShell garbage collection to release COM objects
+            run_powershell(
+                "[System.GC]::Collect(); [System.GC]::WaitForPendingFinalizers()",
+                timeout=5
+            )
+
     return findings

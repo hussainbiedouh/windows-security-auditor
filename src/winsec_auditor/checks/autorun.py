@@ -2,7 +2,8 @@
 
 from typing import TYPE_CHECKING
 
-from winsec_auditor.utils import run_powershell
+from winsec_auditor.utils import run_powershell, parse_startup_commands
+from winsec_auditor.config import config
 
 if TYPE_CHECKING:
     from winsec_auditor.types import SecurityFinding
@@ -50,26 +51,8 @@ def check_autorun() -> list["SecurityFinding"]:
     )
     
     if success and output.strip():
-        lines = output.strip().split('\n')
-        entries = []
-        current_entry = {}
-        
-        for line in lines:
-            line = line.strip()
-            if line.startswith('Name') and ':' in line:
-                if current_entry and 'Name' in current_entry:
-                    entries.append(current_entry)
-                current_entry = {'Name': line.split(':', 1)[1].strip()}
-            elif line.startswith('Command') and ':' in line:
-                current_entry['Command'] = line.split(':', 1)[1].strip()
-            elif line.startswith('Location') and ':' in line:
-                current_entry['Location'] = line.split(':', 1)[1].strip()
-            elif line.startswith('User') and ':' in line:
-                current_entry['User'] = line.split(':', 1)[1].strip()
-        
-        # Add the last entry
-        if current_entry and 'Name' in current_entry:
-            entries.append(current_entry)
+        # Parse startup commands using utility function
+        entries = parse_startup_commands(output)
         
         startup_count = len(entries)
         
@@ -90,7 +73,7 @@ def check_autorun() -> list["SecurityFinding"]:
         
         # Analyze each entry
         suspicious_count = 0
-        for entry in entries[:10]:  # Analyze first 10
+        for entry in entries[:config.max_autorun_entries]:  # Use config
             name = entry.get('Name', 'Unknown')
             command = entry.get('Command', '')
             location = entry.get('Location', 'Unknown')

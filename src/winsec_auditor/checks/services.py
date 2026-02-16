@@ -2,7 +2,8 @@
 
 from typing import TYPE_CHECKING
 
-from winsec_auditor.utils import run_powershell
+from winsec_auditor.utils import run_powershell, parse_services
+from winsec_auditor.config import config
 
 if TYPE_CHECKING:
     from winsec_auditor.types import SecurityFinding
@@ -54,47 +55,50 @@ def check_services() -> list["SecurityFinding"]:
     )
     
     if success:
-        lines = output.strip().split('\n')
-        services = []
-        current_service = {}
-        
-        for line in lines:
-            line = line.strip()
-            if line.startswith('Name') and ':' in line:
-                if current_service and 'Name' in current_service:
-                    services.append(current_service)
-                current_service = {'Name': line.split(':', 1)[1].strip()}
-            elif line.startswith('DisplayName') and ':' in line:
-                current_service['DisplayName'] = line.split(':', 1)[1].strip()
-            elif line.startswith('StartType') and ':' in line:
-                current_service['StartType'] = line.split(':', 1)[1].strip()
-        
-        if current_service and 'Name' in current_service:
-            services.append(current_service)
-        
-        # Check for potentially risky services
-        risky_found = []
-        for service in services:
-            name = service.get('Name', '').lower()
-            display = service.get('DisplayName', '').lower()
-            
-            for risky in POTENTIALLY_RISKY_SERVICES:
-                if risky in name or risky in display:
-                    risky_found.append(service)
-                    break
-        
-        if risky_found:
-            for svc in risky_found[:3]:  # Report first 3
+        try:
+            # Parse services using utility function
+            services = parse_services(output)
+
+            if not services:
                 findings.append({
                     "category": "Services",
-                    "status": "warning",
-                    "description": f"Potentially unnecessary service running: {svc.get('DisplayName', svc.get('Name', 'Unknown'))}",
-                    "details": {
-                        "name": svc.get('Name'),
-                        "display_name": svc.get('DisplayName'),
-                        "start_type": svc.get('StartType'),
-                    },
+                    "status": "info",
+                    "description": "No running services data available",
+                    "details": None,
                 })
+            else:
+                # Check for potentially risky services
+                risky_found = []
+                for service in services:
+                    # Use .get() with defaults to avoid KeyError
+                    name = service.get('Name', '').lower()
+                    display = service.get('DisplayName', '').lower()
+
+                    for risky in POTENTIALLY_RISKY_SERVICES:
+                        if risky in name or risky in display:
+                            risky_found.append(service)
+                            break
+
+                if risky_found:
+                    for svc in risky_found[:config.max_risky_services_report]:  # Use config
+                        display_name = svc.get('DisplayName') or svc.get('Name') or 'Unknown'
+                        findings.append({
+                            "category": "Services",
+                            "status": "warning",
+                            "description": f"Potentially unnecessary service running: {display_name}",
+                            "details": {
+                                "name": svc.get('Name'),
+                                "display_name": svc.get('DisplayName'),
+                                "start_type": svc.get('StartType'),
+                            },
+                        })
+        except Exception as e:
+            findings.append({
+                "category": "Services",
+                "status": "error",
+                "description": f"Error parsing service data: {e}",
+                "details": None,
+            })
     
     # Check for services running as SYSTEM that might be exploitable
     success, output = run_powershell(
@@ -107,7 +111,7 @@ def check_services() -> list["SecurityFinding"]:
         system_services = [l for l in output.split('\n') if l.strip().startswith('Name')]
         system_count = len(system_services)
         
-        if system_count > 50:  # Unusually high number might indicate issues
+        if system_count > config.system_services_warning_threshold:  # Use config
             findings.append({
                 "category": "Services",
                 "status": "warning",

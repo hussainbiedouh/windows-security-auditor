@@ -2,7 +2,8 @@
 
 from typing import TYPE_CHECKING
 
-from winsec_auditor.utils import run_command, run_powershell
+from winsec_auditor.utils import run_command, run_powershell, parse_firewall_profiles
+from winsec_auditor.config import config
 
 if TYPE_CHECKING:
     from winsec_auditor.types import SecurityFinding
@@ -19,29 +20,33 @@ def check_firewall() -> list["SecurityFinding"]:
     )
     
     if success and output.strip():
-        profiles = ["Domain", "Private", "Public"]
+        # Parse firewall profiles using utility function
+        profiles_data = parse_firewall_profiles(output)
         enabled_count = 0
         
-        for profile in profiles:
-            if profile in output:
-                # Check if enabled
-                is_enabled = "True" in output[output.find(profile):output.find(profile)+100]
-                
-                if is_enabled:
-                    enabled_count += 1
-                    findings.append({
-                        "category": "Firewall",
-                        "status": "ok",
-                        "description": f"{profile} Profile: Active",
-                        "details": {"profile": profile, "enabled": True},
-                    })
-                else:
-                    findings.append({
-                        "category": "Firewall",
-                        "status": "warning",
-                        "description": f"{profile} Profile: Inactive",
-                        "details": {"profile": profile, "enabled": False},
-                    })
+        # Process parsed profiles
+        profile_status = {}
+        for profile in profiles_data:
+            name = profile.get('Name', '')
+            enabled_str = profile.get('Enabled', 'False').lower()
+            is_enabled = enabled_str == 'true'
+            profile_status[name] = is_enabled
+            
+            if is_enabled:
+                enabled_count += 1
+                findings.append({
+                    "category": "Firewall",
+                    "status": "ok",
+                    "description": f"{name} Profile: Active",
+                    "details": {"profile": name, "enabled": True},
+                })
+            else:
+                findings.append({
+                    "category": "Firewall",
+                    "status": "warning",
+                    "description": f"{name} Profile: Inactive",
+                    "details": {"profile": name, "enabled": False},
+                })
         
         # Overall status
         if enabled_count == 3:

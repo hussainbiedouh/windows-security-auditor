@@ -1,7 +1,7 @@
 """Main scanner orchestrator for Windows Security Auditor."""
 
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol, Optional
 
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 
@@ -12,7 +12,22 @@ from winsec_auditor.checks import (
 )
 
 if TYPE_CHECKING:
-    from winsec_auditor.types import ScanResult, SecurityFinding
+    from winsec_auditor.types import ScanResult, SecurityFinding, SecurityFindings
+
+
+class ProgressCallback(Protocol):
+    """Protocol for progress callback functions.
+    
+    Defines the interface for callbacks that report scan progress.
+    """
+    
+    def __call__(self, message: str) -> None:
+        """Report progress update.
+        
+        Args:
+            message: Progress message to display.
+        """
+        ...
 
 
 class SecurityScanner:
@@ -29,8 +44,8 @@ class SecurityScanner:
     def scan(
         self,
         scan_type: str = "basic",
-        specific_checks: list[str] | None = None,
-        progress_callback: callable | None = None,
+        specific_checks: Optional[list[str]] = None,
+        progress_callback: Optional[ProgressCallback] = None,
     ) -> "ScanResult":
         """Perform a security scan.
         
@@ -48,7 +63,7 @@ class SecurityScanner:
         else:
             checks_to_run = get_checks_for_scan_type(scan_type)
         
-        all_findings: list["SecurityFinding"] = []
+        all_findings: "SecurityFindings" = []
         
         # Run each check
         for check_id in checks_to_run:
@@ -79,18 +94,32 @@ class SecurityScanner:
             "summary": summary,
         }
     
-    def scan_with_progress(self, scan_type: str = "basic", console=None) -> "ScanResult":
+    def scan_with_progress(
+        self,
+        scan_type: str = "basic",
+        specific_checks: Optional[list[str]] = None,
+        console=None
+    ) -> "ScanResult":
         """Perform a scan with visual progress indicators.
+        
+        This method delegates to scan() with a progress-aware callback,
+        ensuring consistent behavior between both scan methods.
         
         Args:
             scan_type: Type of scan ('basic' or 'full').
+            specific_checks: List of specific check IDs to run (overrides scan_type).
             console: Rich console instance for output.
             
         Returns:
             Scan results dictionary.
         """
-        checks_to_run = get_checks_for_scan_type(scan_type)
-        all_findings: list["SecurityFinding"] = []
+        # Determine which checks to run (same logic as scan())
+        if specific_checks:
+            checks_to_run = specific_checks
+        else:
+            checks_to_run = get_checks_for_scan_type(scan_type)
+        
+        all_findings: "SecurityFindings" = []
         
         with Progress(
             SpinnerColumn(),
@@ -125,12 +154,12 @@ class SecurityScanner:
         
         return {
             "timestamp": datetime.now().isoformat(),
-            "scan_type": scan_type,
+            "scan_type": scan_type if not specific_checks else "custom",
             "findings": all_findings,
             "summary": summary,
         }
     
-    def _generate_summary(self, findings: list["SecurityFinding"]) -> dict:
+    def _generate_summary(self, findings: "SecurityFindings") -> dict:
         """Generate summary statistics from findings.
         
         Args:

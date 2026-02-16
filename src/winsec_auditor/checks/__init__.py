@@ -1,9 +1,9 @@
 """Security check modules for Windows Security Auditor."""
 
-from typing import Callable, TYPE_CHECKING
+from typing import Callable, TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
-    from winsec_auditor.types import SecurityFinding, CheckInfo
+    from winsec_auditor.types import SecurityFinding, CheckInfo, CheckDefinition
 
 # Import all check modules
 from winsec_auditor.checks import (
@@ -20,7 +20,8 @@ from winsec_auditor.checks import (
 )
 
 # Define available checks with their metadata
-AVAILABLE_CHECKS: dict[str, dict[str, any]] = {
+# Using TypedDict for type safety - each check has name, description, scan_type, and function
+AVAILABLE_CHECKS: dict[str, "CheckDefinition"] = {
     "system": {
         "name": "System Information",
         "description": "Basic system information and resource usage",
@@ -100,7 +101,7 @@ def get_checks_for_scan_type(scan_type: str) -> list[str]:
     return []
 
 
-def get_check_function(check_id: str) -> Callable[[], list["SecurityFinding"]] | None:
+def get_check_function(check_id: str) -> Optional[Callable[[], list["SecurityFinding"]]]:
     """Get the function for a specific check.
     
     Args:
@@ -113,7 +114,7 @@ def get_check_function(check_id: str) -> Callable[[], list["SecurityFinding"]] |
     return check["function"] if check else None
 
 
-def get_check_info(check_id: str) -> "CheckInfo" | None:
+def get_check_info(check_id: str) -> Optional["CheckInfo"]:
     """Get information about a specific check.
     
     Args:

@@ -9,77 +9,110 @@ if TYPE_CHECKING:
     from winsec_auditor.types import SecurityFinding
 
 
-def check_registry() -> list["SecurityFinding"]:
-    """Check important registry security settings."""
-    findings: list["SecurityFinding"] = []
+# UAC registry key path
+UAC_KEY_PATH = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"
+
+
+def _check_uac_enabled(findings: list["SecurityFinding"]) -> None:
+    """Check if UAC is enabled and add appropriate finding.
     
-    # Check UAC (User Account Control)
-    try:
-        key_path = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"
-        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path) as key:
-            try:
-                value, _ = winreg.QueryValueEx(key, "EnableLUA")
-                if value == 1:
-                    findings.append({
-                        "category": "Registry Security",
-                        "status": "ok",
-                        "description": "UAC (User Account Control) is enabled",
-                        "details": {"uac_enabled": True},
-                    })
-                else:
-                    findings.append({
-                        "category": "Registry Security",
-                        "status": "critical",
-                        "description": "UAC (User Account Control) is disabled - security risk",
-                        "details": {"uac_enabled": False},
-                    })
-            except FileNotFoundError:
-                findings.append({
-                    "category": "Registry Security",
-                    "status": "warning",
-                    "description": "UAC registry key not found",
-                    "details": None,
-                })
-    except Exception as e:
+    Args:
+        findings: List to append findings to.
+    """
+    success, value = _read_registry_value(UAC_KEY_PATH, "EnableLUA")
+    if success:
+        if value == 1:
+            findings.append({
+                "category": "Registry Security",
+                "status": "ok",
+                "description": "UAC (User Account Control) is enabled",
+                "details": {"uac_enabled": True},
+            })
+        elif value == 0:
+            findings.append({
+                "category": "Registry Security",
+                "status": "critical",
+                "description": "UAC (User Account Control) is disabled - security risk",
+                "details": {"uac_enabled": False},
+            })
+        else:
+            findings.append({
+                "category": "Registry Security",
+                "status": "warning",
+                "description": "UAC registry key not found",
+                "details": None,
+            })
+    else:
         findings.append({
             "category": "Registry Security",
             "status": "warning",
-            "description": f"Error checking UAC setting: {e}",
+            "description": "Could not read UAC registry setting",
             "details": None,
         })
+
+
+def _check_uac_level(findings: list["SecurityFinding"]) -> None:
+    """Check UAC notification level and add appropriate finding.
     
-    # Check UAC level
+    Args:
+        findings: List to append findings to.
+    """
+    success, value = _read_registry_value(UAC_KEY_PATH, "ConsentPromptBehaviorAdmin")
+    if success and value is not None:
+        # 2 = Always notify, 5 = Notify only when apps try to make changes, 0 = Never notify
+        if value == 2:
+            findings.append({
+                "category": "Registry Security",
+                "status": "ok",
+                "description": "UAC is set to 'Always notify' - highest security",
+                "details": {"uac_level": "always_notify"},
+            })
+        elif value == 5:
+            findings.append({
+                "category": "Registry Security",
+                "status": "warning",
+                "description": "UAC is set to 'Notify only when apps try to make changes'",
+                "details": {"uac_level": "notify_apps"},
+            })
+        elif value == 0:
+            findings.append({
+                "category": "Registry Security",
+                "status": "critical",
+                "description": "UAC is set to 'Never notify' - security risk",
+                "details": {"uac_level": "never_notify"},
+            })
+
+
+def _read_registry_value(key_path: str, value_name: str) -> tuple[bool, int | str | None]:
+    """Read a registry value safely.
+
+    Args:
+        key_path: Registry key path.
+        value_name: Name of the value to read.
+
+    Returns:
+        Tuple of (success, value). Value is None if not found or error.
+    """
     try:
-        key_path = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"
         with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path) as key:
             try:
-                value, _ = winreg.QueryValueEx(key, "ConsentPromptBehaviorAdmin")
-                # 2 = Always notify, 5 = Notify only when apps try to make changes, 0 = Never notify
-                if value == 2:
-                    findings.append({
-                        "category": "Registry Security",
-                        "status": "ok",
-                        "description": "UAC is set to 'Always notify' - highest security",
-                        "details": {"uac_level": "always_notify"},
-                    })
-                elif value == 5:
-                    findings.append({
-                        "category": "Registry Security",
-                        "status": "warning",
-                        "description": "UAC is set to 'Notify only when apps try to make changes'",
-                        "details": {"uac_level": "notify_apps"},
-                    })
-                elif value == 0:
-                    findings.append({
-                        "category": "Registry Security",
-                        "status": "critical",
-                        "description": "UAC is set to 'Never notify' - security risk",
-                        "details": {"uac_level": "never_notify"},
-                    })
+                value, _ = winreg.QueryValueEx(key, value_name)
+                return True, value
             except FileNotFoundError:
-                pass
+                return True, None
     except Exception:
-        pass
+        return False, None
+
+
+def check_registry() -> list["SecurityFinding"]:
+    """Check important registry security settings."""
+    findings: list["SecurityFinding"] = []
+
+    # Check UAC (User Account Control) enabled
+    _check_uac_enabled(findings)
+
+    # Check UAC level
+    _check_uac_level(findings)
     
     # Check PowerShell execution policy
     success, output = run_powershell(

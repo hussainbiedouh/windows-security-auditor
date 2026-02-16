@@ -3,29 +3,10 @@
 from typing import TYPE_CHECKING
 
 from winsec_auditor.utils import run_command
+from winsec_auditor.config import config
 
 if TYPE_CHECKING:
     from winsec_auditor.types import SecurityFinding
-
-
-# Potentially risky ports
-RISKY_PORTS = [
-    (20, "FTP Data"),
-    (21, "FTP Control"),
-    (23, "Telnet - insecure protocol"),
-    (25, "SMTP - potential spam relay"),
-    (110, "POP3 - insecure email"),
-    (135, "RPC - commonly attacked"),
-    (137, "NetBIOS Name Service"),
-    (138, "NetBIOS Datagram Service"),
-    (139, "NetBIOS Session Service"),
-    (445, "SMB - commonly attacked"),
-    (993, "IMAPS"),
-    (995, "POP3S"),
-    (1433, "SQL Server - if exposed"),
-    (3389, "RDP - commonly attacked"),
-    (5900, "VNC - if exposed"),
-]
 
 
 def check_network() -> list["SecurityFinding"]:
@@ -60,14 +41,14 @@ def check_network() -> list["SecurityFinding"]:
             "details": {"total_listening": len(listening_ports)},
         })
         
-        # Check for risky ports
+        # Check for risky ports using config
         risky_found = []
-        for port, description in RISKY_PORTS:
+        for port, description in config.risky_ports_with_desc:
             if port in listening_ports:
                 risky_found.append((port, description))
         
         if risky_found:
-            for port, desc in risky_found[:5]:  # Report first 5
+            for port, desc in risky_found[:config.max_risky_ports_report]:  # Use config
                 findings.append({
                     "category": "Network Security",
                     "status": "warning",
@@ -103,7 +84,7 @@ def check_network() -> list["SecurityFinding"]:
         })
         
         # Check for suspicious number of connections
-        if len(established) > 100:
+        if len(established) > config.high_connection_threshold:
             findings.append({
                 "category": "Network Security",
                 "status": "warning",
